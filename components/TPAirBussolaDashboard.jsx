@@ -1348,28 +1348,26 @@ function WeeklyReportModal({ onClose }) {
 }
 
 function WeeklyReportCard() {
-  const [enabled, setEnabled] = useState(true);
-  const [open, setOpen] = useState(false);
   const r = WEEKLY_REPORT;
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-800">
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-slate-50 dark:bg-slate-800">
-            <Mail className="w-5 h-5" style={{ color: BRAND.teal }} />
-          </div>
-          <div>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Toda segunda-feira</p>
-            <p className="font-semibold text-slate-900 dark:text-slate-50">Resumo semanal</p>
-          </div>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-slate-50 dark:bg-slate-800">
+          <Mail className="w-5 h-5" style={{ color: BRAND.teal }} />
         </div>
-        <Toggle on={enabled} onChange={setEnabled} />
+        <div>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Resumo semanal · {r.periodo}</p>
+          <p className="font-semibold text-slate-900 dark:text-slate-50">{r.destaque}</p>
+        </div>
       </div>
-      <p className="text-xs text-slate-500 mb-3 dark:text-slate-400">{enabled ? "Enviado por e-mail. " : "Desativado. "}{r.bullets[0]}.</p>
-      <button onClick={() => setOpen(true)} className="text-sm font-medium inline-flex items-center gap-1" style={{ color: BRAND.teal }}>
-        Ver relatório completo <ChevronRight className="w-3.5 h-3.5" />
-      </button>
-      {open && <WeeklyReportModal onClose={() => setOpen(false)} />}
+      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
+        {r.bullets.map((b, i) => (
+          <li key={i} className="flex gap-2.5 text-sm text-slate-600 dark:text-slate-300">
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" style={{ color: BRAND.teal }} />
+            <span>{b}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -1533,10 +1531,7 @@ function OverviewModule({ goTo }) {
           note={tierInfo.next ? `Faltam ${formatBRL(tierInfo.falta)} para o nível ${tierInfo.next.nome}.` : "Você está no nível máximo."}
         />
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <PreferredSealCard tierId={tierInfo.current.id} agencyName="FlyTop Viagens" tierName={tierInfo.current.nome} />
-        <WeeklyReportCard />
-      </div>
+      <WeeklyReportCard />
     </div>
   );
 }
@@ -1564,6 +1559,10 @@ function TiersModule() {
           )}
         </div>
         <p className="text-sm text-slate-400 whitespace-nowrap dark:text-slate-500">Volume 12 meses: {formatBRL(AGENCY_ANNUAL_VOLUME)}</p>
+      </div>
+
+      <div className="mb-6">
+        <PreferredSealCard tierId={tierInfo.current.id} agencyName="FlyTop Viagens" tierName={tierInfo.current.nome} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

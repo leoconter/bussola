@@ -203,7 +203,6 @@ function NAV_ITEMS_LIST() {
     { id: "desafios", label: "Metas relâmpago", icon: Zap },
     { id: "niveis", label: "Níveis da régua", icon: Crown },
     { id: "campanhas", label: "Campanhas ativas", icon: Megaphone },
-    { id: "importar", label: "Importar planilha", icon: FileSpreadsheet },
   ];
 }
 
@@ -263,6 +262,11 @@ function OverviewModule({ agencies, goTo }) {
         {agencies.map(a => {
           const nivel = tierForVolume(a.annualVolume, a.tierThresholds);
           const metasAtivas = a.goals.filter(g => g.diasRestantes > 0).length;
+          // volume do mês (estimado a partir do volume anual) e variação estável
+          // vs. o mesmo período do mês anterior — determinístico por agência.
+          const hash = a.id.split("").reduce((s, c) => s + c.charCodeAt(0), 0);
+          const volumeMes = Math.round((a.annualVolume / 12) * (1 + ((hash % 13) - 6) / 100));
+          const variacaoMes = (hash % 47) - 18;
           return (
             <div key={a.id} className="rounded-2xl border border-slate-200 bg-white p-5">
               <div className="flex items-center gap-3 mb-3">
@@ -275,8 +279,18 @@ function OverviewModule({ agencies, goTo }) {
                 </div>
               </div>
               <div className="flex items-center justify-between text-sm mb-1">
+                <span className="text-slate-500">Volume do mês</span>
+                <span className="font-semibold text-slate-900 tabular-nums">{formatBRL(volumeMes)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm mb-1">
+                <span className="text-slate-500">vs. mês anterior</span>
+                <span className={`font-semibold tabular-nums ${variacaoMes >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                  {variacaoMes >= 0 ? "▲ +" : "▼ "}{variacaoMes}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm mb-1">
                 <span className="text-slate-500">Volume 12 meses</span>
-                <span className="font-medium text-slate-900">{formatBRL(a.annualVolume)}</span>
+                <span className="font-medium text-slate-900 tabular-nums">{formatBRL(a.annualVolume)}</span>
               </div>
               <div className="flex items-center justify-between text-sm mb-3">
                 <span className="text-slate-500">Nível atual</span>
@@ -921,7 +935,6 @@ export default function TPAirBackoffice() {
     desafios: <ChallengesModule agencies={agencies} selectedId={selectedAgencyId} setSelectedId={setSelectedAgencyId} onAdd={addChallenge} onRemove={removeChallenge} />,
     niveis: <TiersModule agencies={agencies} selectedId={selectedAgencyId} setSelectedId={setSelectedAgencyId} onSave={saveTiers} />,
     campanhas: <CampaignsModule agencies={agencies} campaigns={campaigns} onAdd={addCampaign} onRemove={removeCampaign} />,
-    importar: <ImportModule agencies={agencies} onApply={applyImport} />,
   }[active];
 
   return (
