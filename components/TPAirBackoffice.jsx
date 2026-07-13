@@ -186,6 +186,35 @@ function formatBRL(n) {
   return "R$ " + Number(n || 0).toLocaleString("pt-BR");
 }
 
+// máscara de moeda para inputs (inteiros em reais): "1500000" -> "R$ 1.500.000"
+function formatMoneyInput(str) {
+  const digits = String(str == null ? "" : str).replace(/\D/g, "");
+  return digits ? "R$ " + Number(digits).toLocaleString("pt-BR") : "";
+}
+function parseMoney(str) {
+  const digits = String(str == null ? "" : str).replace(/\D/g, "");
+  return digits ? parseInt(digits, 10) : 0;
+}
+// máscara de data DD/MM/AAAA enquanto digita (só números)
+function formatDateInput(str) {
+  const d = String(str == null ? "" : str).replace(/\D/g, "").slice(0, 8);
+  if (d.length <= 2) return d;
+  if (d.length <= 4) return d.slice(0, 2) + "/" + d.slice(2);
+  return d.slice(0, 2) + "/" + d.slice(2, 4) + "/" + d.slice(4);
+}
+const isDateComplete = s => /^\d{2}\/\d{2}\/\d{4}$/.test(String(s || ""));
+// deriva o fim do período e os dias restantes a partir do tipo da meta + data de início (DD/MM/AAAA)
+function calcularPrazoMeta(tipo, dataInicioBR) {
+  const meses = { Mensal: 1, Trimestral: 3, Anual: 12 }[tipo] || 1;
+  const [dia, mes, ano] = String(dataInicioBR).split("/").map(Number);
+  if (!dia || !mes || !ano) return { diasRestantes: 0, prazo: "Sem data", fimLabel: "" };
+  const fim = new Date(ano, (mes - 1) + meses, 0, 23, 59, 59); // último dia do último mês da janela
+  const hoje = new Date();
+  const dias = Math.max(0, Math.ceil((fim.getTime() - hoje.getTime()) / 86400000));
+  const fimLabel = `${String(fim.getDate()).padStart(2, "0")}/${String(fim.getMonth() + 1).padStart(2, "0")}/${fim.getFullYear()}`;
+  return { diasRestantes: dias, prazo: dias > 0 ? `${dias} dias restantes` : "Encerrada", fimLabel };
+}
+
 function tierForVolume(volume, thresholds) {
   const order = [
     { id: "diamante", nome: "Diamante", min: thresholds.diamante },
@@ -196,15 +225,17 @@ function tierForVolume(volume, thresholds) {
 }
 
 // ---------- componentes utilitários ----------
-function NAV_ITEMS_LIST() {
-  return [
-    { id: "visao", label: "Visão geral", icon: LayoutDashboard },
-    { id: "metas", label: "Metas mensais e anuais", icon: Target },
-    { id: "desafios", label: "Metas relâmpago", icon: Zap },
-    { id: "niveis", label: "Níveis da régua", icon: Crown },
-    { id: "campanhas", label: "Campanhas ativas", icon: Megaphone },
-  ];
-}
+// itens globais (sempre visíveis) e itens de gestão de uma agência
+// (só aparecem depois que o operador seleciona uma agência na Visão geral).
+const GLOBAL_NAV = [
+  { id: "visao", label: "Visão geral", icon: LayoutDashboard },
+  { id: "campanhas", label: "Campanhas ativas", icon: Megaphone },
+];
+const AGENCY_NAV = [
+  { id: "metas", label: "Metas mensais e anuais", icon: Target },
+  { id: "desafios", label: "Metas relâmpago", icon: Zap },
+  { id: "niveis", label: "Níveis da régua", icon: Crown },
+];
 
 function SectionTitle({ eyebrow, title, action }) {
   return (
@@ -316,23 +347,26 @@ function OverviewModule({ agencies, goTo }) {
 
 function GoalsModule({ agencies, selectedId, setSelectedId, onAdd, onRemove }) {
   const agency = agencies.find(a => a.id === selectedId) || agencies[0];
-  const [form, setForm] = useState({ tipo: "Mensal", titulo: "", metaValor: "", vendido: "0", diasRestantes: "30", recompensa: "" });
+  const [form, setForm] = useState({ tipo: "Mensal", titulo: "", metaValor: "", vendido: "R$ 0", dataInicio: "", recompensa: "" });
   const set = k => e => setForm({ ...form, [k]: e.target.value });
-  const valid = form.titulo && form.metaValor && form.recompensa;
+  const setMoney = k => e => setForm({ ...form, [k]: formatMoneyInput(e.target.value) });
+  const setDate = k => e => setForm({ ...form, [k]: formatDateInput(e.target.value) });
+  const valid = form.titulo && form.metaValor && form.recompensa && isDateComplete(form.dataInicio);
+  const prazoInfo = isDateComplete(form.dataInicio) ? calcularPrazoMeta(form.tipo, form.dataInicio) : null;
 
   function submit() {
     if (!valid) return;
-    const dias = parseInt(form.diasRestantes, 10) || 0;
+    const p = calcularPrazoMeta(form.tipo, form.dataInicio);
     onAdd(agency.id, {
       id: "g_" + Date.now(),
       titulo: form.titulo,
       recompensa: form.recompensa,
-      metaValor: parseFloat(form.metaValor) || 0,
-      vendido: parseFloat(form.vendido) || 0,
-      prazo: dias > 0 ? `${dias} dias restantes` : "Concluída",
-      diasRestantes: dias,
+      metaValor: parseMoney(form.metaValor),
+      vendido: parseMoney(form.vendido),
+      prazo: p.prazo,
+      diasRestantes: p.diasRestantes,
     });
-    setForm({ tipo: "Mensal", titulo: "", metaValor: "", vendido: "0", diasRestantes: "30", recompensa: "" });
+    setForm({ tipo: "Mensal", titulo: "", metaValor: "", vendido: "R$ 0", dataInicio: "", recompensa: "" });
   }
 
   const inputCls = "w-full mt-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white text-slate-900";
@@ -341,9 +375,7 @@ function GoalsModule({ agencies, selectedId, setSelectedId, onAdd, onRemove }) {
     <div>
       <SectionTitle
         eyebrow="Metas"
-        title="Metas mensais e anuais por agência"
-        action={<AgencyPicker agencies={agencies} selected={agency.id} onSelect={setSelectedId} />}
-      />
+        title="Metas mensais e anuais por agência"      />
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 mb-6">
         <p className="font-semibold text-slate-900 mb-4">Cadastrar nova meta para {agency.nome}</p>
@@ -362,15 +394,18 @@ function GoalsModule({ agencies, selectedId, setSelectedId, onAdd, onRemove }) {
           </div>
           <div>
             <label className="text-xs text-slate-500">Valor da meta (R$)</label>
-            <input value={form.metaValor} onChange={set("metaValor")} placeholder="Ex: 1000000" className={inputCls} />
+            <input inputMode="numeric" value={form.metaValor} onChange={setMoney("metaValor")} placeholder="Ex: R$ 1.000.000" className={inputCls} />
           </div>
           <div>
             <label className="text-xs text-slate-500">Valor já vendido (R$)</label>
-            <input value={form.vendido} onChange={set("vendido")} className={inputCls} />
+            <input inputMode="numeric" value={form.vendido} onChange={setMoney("vendido")} placeholder="Ex: R$ 0" className={inputCls} />
           </div>
           <div>
-            <label className="text-xs text-slate-500">Dias restantes</label>
-            <input value={form.diasRestantes} onChange={set("diasRestantes")} className={inputCls} />
+            <label className="text-xs text-slate-500">Data de início</label>
+            <input inputMode="numeric" maxLength={10} value={form.dataInicio} onChange={setDate("dataInicio")} placeholder="DD/MM/AAAA" className={inputCls} />
+            {prazoInfo && (
+              <p className="text-xs text-slate-400 mt-1">Meta {form.tipo.toLowerCase()} · termina em {prazoInfo.fimLabel} · {prazoInfo.diasRestantes} dias</p>
+            )}
           </div>
           <div>
             <label className="text-xs text-slate-500">Recompensa</label>
@@ -469,9 +504,7 @@ function ChallengesModule({ agencies, selectedId, setSelectedId, onAdd, onRemove
     <div>
       <SectionTitle
         eyebrow="Metas relâmpago"
-        title="Desafios de curta duração por agência"
-        action={<AgencyPicker agencies={agencies} selected={agency.id} onSelect={setSelectedId} />}
-      />
+        title="Desafios de curta duração por agência"      />
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 mb-6">
         <p className="font-semibold text-slate-900 mb-4">Cadastrar novo desafio-relâmpago para {agency.nome}</p>
@@ -533,24 +566,24 @@ function ChallengesModule({ agencies, selectedId, setSelectedId, onAdd, onRemove
 function TiersModule({ agencies, selectedId, setSelectedId, onSave }) {
   const agency = agencies.find(a => a.id === selectedId) || agencies[0];
   const [form, setForm] = useState({
-    ouro: String(agency.tierThresholds.ouro),
-    diamante: String(agency.tierThresholds.diamante),
+    ouro: formatMoneyInput(String(agency.tierThresholds.ouro)),
+    diamante: formatMoneyInput(String(agency.tierThresholds.diamante)),
   });
 
   useEffect(() => {
     setForm({
-      ouro: String(agency.tierThresholds.ouro),
-      diamante: String(agency.tierThresholds.diamante),
+      ouro: formatMoneyInput(String(agency.tierThresholds.ouro)),
+      diamante: formatMoneyInput(String(agency.tierThresholds.diamante)),
     });
   }, [agency.id]);
 
-  const set = k => e => setForm({ ...form, [k]: e.target.value });
+  const setMoney = k => e => setForm({ ...form, [k]: formatMoneyInput(e.target.value) });
 
   function submit() {
     onSave(agency.id, {
       prata: 0,
-      ouro: parseFloat(form.ouro) || 0,
-      diamante: parseFloat(form.diamante) || 0,
+      ouro: parseMoney(form.ouro),
+      diamante: parseMoney(form.diamante),
     });
   }
 
@@ -561,9 +594,7 @@ function TiersModule({ agencies, selectedId, setSelectedId, onSave }) {
     <div>
       <SectionTitle
         eyebrow="Régua de relacionamento"
-        title="Volume necessário para cada nível, por agência"
-        action={<AgencyPicker agencies={agencies} selected={agency.id} onSelect={setSelectedId} />}
-      />
+        title="Volume necessário para cada nível, por agência"      />
       <div className="rounded-xl p-4 mb-6 flex gap-3 items-start" style={{ backgroundColor: "#EAF6F4" }}>
         <Info className="w-4 h-4 shrink-0 mt-0.5" style={{ color: BRAND.tealDark }} />
         <p className="text-sm text-slate-700">
@@ -587,11 +618,11 @@ function TiersModule({ agencies, selectedId, setSelectedId, onSave }) {
           </div>
           <div>
             <label className="text-xs text-slate-500">Ouro — a partir de (R$ em 12 meses)</label>
-            <input value={form.ouro} onChange={set("ouro")} className={inputCls} />
+            <input inputMode="numeric" value={form.ouro} onChange={setMoney("ouro")} className={inputCls} />
           </div>
           <div>
             <label className="text-xs text-slate-500">Diamante — a partir de (R$ em 12 meses)</label>
-            <input value={form.diamante} onChange={set("diamante")} className={inputCls} />
+            <input inputMode="numeric" value={form.diamante} onChange={setMoney("diamante")} className={inputCls} />
           </div>
         </div>
         <button
@@ -612,7 +643,11 @@ function CampaignsModule({ agencies, campaigns, onAdd, onRemove }) {
   });
   const [selectedAgencies, setSelectedAgencies] = useState([]);
   const set = k => e => setForm({ ...form, [k]: e.target.value });
-  const valid = form.companhia && form.regra && form.recompensa && form.valor && form.inicio && form.fim;
+  const setDate = k => e => setForm({ ...form, [k]: formatDateInput(e.target.value) });
+  // valor: máscara de R$ quando bônus; número puro quando incentivo (%)
+  const setValor = e => setForm(f => ({ ...f, valor: f.tipo === "bonus" ? formatMoneyInput(e.target.value) : e.target.value.replace(/\D/g, "") }));
+  const setTipo = e => setForm(f => ({ ...f, tipo: e.target.value, valor: "" }));
+  const valid = form.companhia && form.regra && form.recompensa && form.valor && isDateComplete(form.inicio) && isDateComplete(form.fim);
 
   function toggleAgency(id) {
     setSelectedAgencies(sel => sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
@@ -634,8 +669,8 @@ function CampaignsModule({ agencies, campaigns, onAdd, onRemove }) {
       regrasDetalhadas: [`Válido entre ${form.inicio} e ${form.fim}.`, "Cadastrado via Backoffice TPAir."],
       agenciasElegiveis: form.elegibilidade === "todas" ? "todas" : selectedAgencies,
     };
-    if (form.tipo === "bonus") base.valorPorBilhete = parseFloat(form.valor) || 0;
-    else base.percentualIncentivo = parseFloat(form.valor) || 0;
+    if (form.tipo === "bonus") base.valorPorBilhete = parseMoney(form.valor);
+    else base.percentualIncentivo = parseInt(String(form.valor).replace(/\D/g, ""), 10) || 0;
     onAdd(base);
     setForm({ companhia: "", tipo: "bonus", regra: "", recompensa: "", valor: "", inicio: "", fim: "", meta: "5", elegibilidade: "todas" });
     setSelectedAgencies([]);
@@ -656,7 +691,7 @@ function CampaignsModule({ agencies, campaigns, onAdd, onRemove }) {
           </div>
           <div>
             <label className="text-xs text-slate-500">Tipo</label>
-            <select value={form.tipo} onChange={set("tipo")} className={inputCls}>
+            <select value={form.tipo} onChange={setTipo} className={inputCls}>
               <option value="bonus">Bônus por emissão (valor fixo)</option>
               <option value="incentivo">Incentivo de comissão (percentual)</option>
             </select>
@@ -671,15 +706,15 @@ function CampaignsModule({ agencies, campaigns, onAdd, onRemove }) {
           </div>
           <div>
             <label className="text-xs text-slate-500">{form.tipo === "bonus" ? "Valor por bilhete (R$)" : "Percentual de incentivo (%)"}</label>
-            <input value={form.valor} onChange={set("valor")} className={inputCls} />
+            <input inputMode="numeric" value={form.valor} onChange={setValor} placeholder={form.tipo === "bonus" ? "Ex: R$ 150" : "Ex: 3"} className={inputCls} />
           </div>
           <div>
             <label className="text-xs text-slate-500">Início</label>
-            <input value={form.inicio} onChange={set("inicio")} placeholder="DD/MM/AAAA" className={inputCls} />
+            <input inputMode="numeric" maxLength={10} value={form.inicio} onChange={setDate("inicio")} placeholder="DD/MM/AAAA" className={inputCls} />
           </div>
           <div>
             <label className="text-xs text-slate-500">Fim</label>
-            <input value={form.fim} onChange={set("fim")} placeholder="DD/MM/AAAA" className={inputCls} />
+            <input inputMode="numeric" maxLength={10} value={form.fim} onChange={setDate("fim")} placeholder="DD/MM/AAAA" className={inputCls} />
           </div>
           {form.tipo === "bonus" && (
             <div>
@@ -881,8 +916,13 @@ export default function TPAirBackoffice() {
   const [agencies, setAgencies] = useState(initial.agencies);
   const [campaigns, setCampaigns] = useState(initial.campaigns);
   const [active, setActive] = useState("visao");
-  const [selectedAgencyId, setSelectedAgencyId] = useState(initial.agencies[0].id);
+  const [selectedAgencyId, setSelectedAgencyId] = useState(null);
   const [toast, setToast] = useState(null);
+
+  function exitAgency() {
+    setSelectedAgencyId(null);
+    setActive("visao");
+  }
 
   useEffect(() => {
     persist(agencies, campaigns);
@@ -929,13 +969,18 @@ export default function TPAirBackoffice() {
     setToast(`${count} meta(s) importada(s) com sucesso.`);
   }
 
+  const managingAgency = selectedAgencyId ? agencies.find(a => a.id === selectedAgencyId) : null;
+  const agencyScoped = active === "metas" || active === "desafios" || active === "niveis";
+  // proteção: sem agência selecionada não dá pra abrir telas de gestão
+  const activeSafe = agencyScoped && !managingAgency ? "visao" : active;
+
   const content = {
     visao: <OverviewModule agencies={agencies} goTo={goTo} />,
-    metas: <GoalsModule agencies={agencies} selectedId={selectedAgencyId} setSelectedId={setSelectedAgencyId} onAdd={addGoal} onRemove={removeGoal} />,
-    desafios: <ChallengesModule agencies={agencies} selectedId={selectedAgencyId} setSelectedId={setSelectedAgencyId} onAdd={addChallenge} onRemove={removeChallenge} />,
-    niveis: <TiersModule agencies={agencies} selectedId={selectedAgencyId} setSelectedId={setSelectedAgencyId} onSave={saveTiers} />,
+    metas: <GoalsModule agencies={agencies} selectedId={selectedAgencyId} onAdd={addGoal} onRemove={removeGoal} />,
+    desafios: <ChallengesModule agencies={agencies} selectedId={selectedAgencyId} onAdd={addChallenge} onRemove={removeChallenge} />,
+    niveis: <TiersModule agencies={agencies} selectedId={selectedAgencyId} onSave={saveTiers} />,
     campanhas: <CampaignsModule agencies={agencies} campaigns={campaigns} onAdd={addCampaign} onRemove={removeCampaign} />,
-  }[active];
+  }[activeSafe];
 
   return (
     <div className="min-h-screen w-full flex bg-slate-50 text-slate-900" style={{ fontFamily: "Arial, ui-sans-serif, system-ui" }}>
@@ -946,22 +991,55 @@ export default function TPAirBackoffice() {
             Backoffice · Consolidadora
           </p>
         </div>
-        <nav className="flex-1 px-3 space-y-1">
-          {NAV_ITEMS_LIST().map(item => {
-            const Icon = item.icon;
-            const isActive = active === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setActive(item.id)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors"
-                style={isActive ? { backgroundColor: "#EAF6F4", color: BRAND.tealDark, fontWeight: 600 } : { color: "#475569" }}
-              >
-                <Icon className="w-4 h-4" />
-                {item.label}
-              </button>
-            );
-          })}
+        <nav className="flex-1 px-3 overflow-y-auto">
+          <div className="space-y-1">
+            {GLOBAL_NAV.map(item => {
+              const Icon = item.icon;
+              const isActive = activeSafe === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActive(item.id)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors hover:bg-slate-100"
+                  style={isActive ? { backgroundColor: "#EAF6F4", color: BRAND.tealDark, fontWeight: 600 } : { color: "#475569" }}
+                >
+                  <Icon className="w-4 h-4" />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {managingAgency && (
+            <div className="mt-6">
+              <div className="px-3 mb-2 flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[0.6rem] font-semibold uppercase tracking-wider text-slate-400">Gerenciando</p>
+                  <p className="text-sm font-semibold text-slate-900 truncate">{managingAgency.nome}</p>
+                </div>
+                <button onClick={exitAgency} title="Sair da agência" className="text-slate-400 hover:text-slate-700 shrink-0 mt-0.5">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="space-y-1">
+                {AGENCY_NAV.map(item => {
+                  const Icon = item.icon;
+                  const isActive = activeSafe === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActive(item.id)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors hover:bg-slate-100"
+                      style={isActive ? { backgroundColor: "#EAF6F4", color: BRAND.tealDark, fontWeight: 600 } : { color: "#475569" }}
+                    >
+                      <Icon className="w-4 h-4" />
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </nav>
         <div className="px-6 py-5 border-t border-slate-100">
           <p className="text-xs text-slate-400">{agencies.length} agências conectadas ao Bússola</p>
