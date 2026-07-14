@@ -212,7 +212,9 @@ export default function Home() {
           <span className={styles.footDot} />
           Protótipo — dados de exemplo, sem backend.
         </span>
-        <span className={styles.footCoord}>GRU 23°26′S 046°28′W</span>
+        <Link href="/mapa" className={styles.footCoord} style={{ textDecoration: "underline", textUnderlineOffset: "3px" }}>
+          Mapa da plataforma →
+        </Link>
       </footer>
     </main>
   );

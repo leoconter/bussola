@@ -22,3 +22,6 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# claude code — configuração local/pessoal
+.claude/settings.local.json
